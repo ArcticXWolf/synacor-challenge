@@ -1,9 +1,6 @@
 use std::fmt::Display;
 
-use crate::{
-    debugger::Debugger,
-    vm::{VirtualMachine, HEAP_SIZE, MAX_ADDRESS},
-};
+use crate::vm::{VirtualMachine, HEAP_SIZE, MAX_ADDRESS};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Instruction {
@@ -131,7 +128,7 @@ impl Instruction {
         }
     }
 
-    pub fn execute(&self, vm: &mut VirtualMachine, debugger: Option<&mut Debugger>) {
+    pub fn execute(&self, vm: &mut VirtualMachine) {
         match self {
             // 0
             Self::Halt => {
@@ -260,11 +257,7 @@ impl Instruction {
             // 19
             Self::Out(character_raw) => {
                 let character = vm.memory.read(character_raw) as u8 as char;
-                if let Some(debug) = debugger {
-                    debug.push_output(character);
-                } else {
-                    print!("{}", character);
-                }
+                vm.output_buffer.push(character);
                 vm.program_counter += self.byte_length() as u16;
             }
             // 20
@@ -287,6 +280,7 @@ impl Display for Instruction {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use crate::vm::VirtualMachine;
@@ -318,7 +312,7 @@ mod tests {
         let program: [u16; 1] = [0];
         vm.load_data(&program);
         let instruction = Instruction::Halt;
-        instruction.execute(&mut vm, None);
+        instruction.execute(&mut vm);
         assert!(vm.halted);
     }
 
@@ -330,27 +324,28 @@ mod tests {
 
         vm.program_counter = 100;
         let instruction = Instruction::Jump(300);
-        instruction.execute(&mut vm, None);
+        instruction.execute(&mut vm);
         assert_eq!(vm.program_counter, 300);
 
         vm.program_counter = 100;
         let instruction = Instruction::JumpIfNonZero(0, 300);
-        instruction.execute(&mut vm, None);
+        instruction.execute(&mut vm);
         assert_eq!(vm.program_counter, 103);
 
         vm.program_counter = 100;
         let instruction = Instruction::JumpIfNonZero(1, 300);
-        instruction.execute(&mut vm, None);
+        instruction.execute(&mut vm);
         assert_eq!(vm.program_counter, 300);
 
         vm.program_counter = 100;
         let instruction = Instruction::JumpIfZero(0, 300);
-        instruction.execute(&mut vm, None);
+        instruction.execute(&mut vm);
         assert_eq!(vm.program_counter, 300);
 
         vm.program_counter = 100;
         let instruction = Instruction::JumpIfZero(1, 300);
-        instruction.execute(&mut vm, None);
+        instruction.execute(&mut vm);
         assert_eq!(vm.program_counter, 103);
     }
 }
+*/

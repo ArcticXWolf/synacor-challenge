@@ -1,10 +1,8 @@
-use std::{env, fs};
+use std::{env, fs, thread};
 
-use debugger::Debugger;
-use vm::VirtualMachine;
+use vm::{VirtualMachine, VirtualMachineSubscription};
 
-pub mod debugger;
-pub mod opcodes;
+pub mod viewer;
 pub mod vm;
 
 fn transform_bytes_to_program_code(content: &[u8]) -> Vec<u16> {
@@ -22,9 +20,13 @@ fn main() {
     let content = fs::read(file_path).expect("Could not read file");
     let program = transform_bytes_to_program_code(&content);
 
-    let mut debugger = Debugger::default();
-    debugger.breakpoints.push(0);
-    let mut vm = VirtualMachine::default();
-    vm.load_data(&program);
-    vm.run(None);
+    let (subscriber, subscription) = VirtualMachineSubscription::setup();
+
+    let _handle = thread::spawn(move || {
+        let mut vm = VirtualMachine::new(subscriber);
+        vm.load_data(&program);
+        vm.run();
+    });
+
+    let _ = viewer::main(subscription);
 }
