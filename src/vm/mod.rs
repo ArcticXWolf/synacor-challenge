@@ -1,173 +1,59 @@
+pub mod memory;
 pub mod opcodes;
+pub mod subscription;
+use memory::Memory;
 use opcodes::Instruction;
-use std::{collections::VecDeque, sync::mpsc, thread, time};
+use std::{collections::VecDeque, fs, thread};
 
-pub const HEAP_SIZE: usize = 1 << 15; // 15-bit space
-pub const MAX_ADDRESS: u16 = HEAP_SIZE as u16 - 1;
-pub const AMOUNT_REGISTERS: usize = 8;
-pub const REGISTER_ADDRESS_START: u16 = MAX_ADDRESS + 1;
-pub const REGISTER_ADDRESS_END: u16 = REGISTER_ADDRESS_START + AMOUNT_REGISTERS as u16 - 1;
+use self::subscription::{
+    VirtualMachineSubscriber, VirtualMachineSubscriptionTick, VirtualMachineSubscriptionUpdate,
+};
 
-#[derive(Debug)]
-pub struct Memory {
-    pub heap: [u16; HEAP_SIZE],
-    pub registers: [u16; AMOUNT_REGISTERS],
-    pub stack: Vec<u16>,
-}
+pub const HISTORY_FILE_PATH: &'static str = "./history.txt";
 
-impl Default for Memory {
-    fn default() -> Self {
-        Self {
-            heap: [0; HEAP_SIZE],
-            registers: [0; AMOUNT_REGISTERS],
-            stack: vec![],
-        }
-    }
-}
-
-impl Memory {
-    pub fn read(&self, value: &u16) -> u16 {
-        match value {
-            0..=MAX_ADDRESS => *value,
-            REGISTER_ADDRESS_START..=REGISTER_ADDRESS_END => {
-                let v = self.registers[*value as usize - HEAP_SIZE];
-                return if (REGISTER_ADDRESS_START..=REGISTER_ADDRESS_END).contains(&v) {
-                    self.read(&v)
-                } else {
-                    v
-                };
-            }
-            _ => panic!("Read violation - read at {}", value),
-        }
-    }
-
-    pub fn write(&mut self, address: &u16, value: u16) {
-        match address {
-            REGISTER_ADDRESS_START..=REGISTER_ADDRESS_END => {
-                self.registers[*address as usize - HEAP_SIZE] =
-                    if (REGISTER_ADDRESS_START..=REGISTER_ADDRESS_END).contains(&value) {
-                        self.read(&value)
-                    } else {
-                        value
-                    };
-            }
-            _ => panic!("Write violation - write {} at {}", value, address),
-        }
-    }
-
-    pub fn mem_read(&self, address: &u16) -> u16 {
-        match address {
-            0..=MAX_ADDRESS => self.heap[*address as usize],
-            REGISTER_ADDRESS_START..=REGISTER_ADDRESS_END => {
-                self.registers[*address as usize - HEAP_SIZE]
-            }
-            _ => panic!("Memory read violation - read at {}", address),
-        }
-    }
-
-    pub fn mem_write(&mut self, address: &u16, value: u16) {
-        match address {
-            0..=MAX_ADDRESS => self.heap[*address as usize] = value,
-            REGISTER_ADDRESS_START..=REGISTER_ADDRESS_END => {
-                self.registers[*address as usize - HEAP_SIZE] = value
-            }
-            _ => panic!("Memory write violation - write {} at {}", value, address),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct VirtualMachineSubscriber {
-    pub tick_receiver: mpsc::Receiver<VirtualMachineSubscriptionTick>,
-    pub update_sender: mpsc::Sender<VirtualMachineSubscriptionUpdate>,
-}
-
-impl VirtualMachineSubscriber {
-    pub fn setup() -> (VirtualMachineSubscriber, VirtualMachineSubscription) {
-        VirtualMachineSubscription::setup()
-    }
-}
-
-#[derive(Debug)]
-pub struct VirtualMachineSubscription {
-    pub update_receiver: mpsc::Receiver<VirtualMachineSubscriptionUpdate>,
-    pub tick_sender: mpsc::Sender<VirtualMachineSubscriptionTick>,
-}
-
-impl VirtualMachineSubscription {
-    pub fn setup() -> (VirtualMachineSubscriber, VirtualMachineSubscription) {
-        let (update_sender, update_receiver) = mpsc::channel();
-        let (tick_sender, tick_receiver) = mpsc::channel();
-
-        (
-            VirtualMachineSubscriber {
-                tick_receiver,
-                update_sender,
-            },
-            VirtualMachineSubscription {
-                update_receiver,
-                tick_sender,
-            },
-        )
-    }
-}
-
-pub struct VirtualMachineSubscriptionTick {
-    pub additional_stdin: String,
-}
-
-#[derive(Debug)]
-pub struct VirtualMachineSubscriptionUpdate {
-    pub output_buffer: String,
-    pub cycle: usize,
-    pub registers: [u16; AMOUNT_REGISTERS],
-    pub stack: Vec<u16>,
-    pub current_instruction: Instruction,
-    pub current_program_counter: u16,
-}
-
-impl Default for VirtualMachineSubscriptionUpdate {
-    fn default() -> Self {
-        Self {
-            output_buffer: Default::default(),
-            cycle: Default::default(),
-            registers: [0; AMOUNT_REGISTERS],
-            stack: vec![],
-            current_instruction: Instruction::Noop,
-            current_program_counter: Default::default(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct VirtualMachine {
+#[derive(Debug, Default)]
+pub struct VirtualMachineSavestate {
+    pub paused: bool,
     pub halted: bool,
     pub cycle: usize,
     pub program_counter: u16,
     pub memory: Memory,
+    pub stdin_history: String,
+    pub stdin_buffer: VecDeque<u8>,
+    pub output_buffer: String,
+}
+
+#[derive(Debug)]
+pub struct VirtualMachine {
+    pub step_once: bool,
+    pub paused: bool,
+    pub halted: bool,
+    pub cycle: usize,
+    pub program_counter: u16,
+    pub memory: Memory,
+    pub stdin_history: String,
     pub stdin_buffer: VecDeque<u8>,
     pub output_buffer: String,
     pub subscriber: VirtualMachineSubscriber,
+    pub save_state: VirtualMachineSavestate,
 }
 
+// Creation & setup
 impl VirtualMachine {
     pub fn new(subscriber: VirtualMachineSubscriber) -> Self {
         Self {
+            step_once: Default::default(),
+            paused: Default::default(),
             halted: Default::default(),
             cycle: Default::default(),
             program_counter: Default::default(),
             memory: Default::default(),
+            stdin_history: Default::default(),
             stdin_buffer: Default::default(),
             output_buffer: Default::default(),
             subscriber: subscriber,
+            save_state: VirtualMachineSavestate::default(),
         }
-    }
-
-    pub fn reset(&mut self) {
-        self.halted = Default::default();
-        self.cycle = Default::default();
-        self.program_counter = Default::default();
-        self.memory = Default::default();
     }
 
     pub fn load_data(&mut self, program: &[u16]) {
@@ -175,7 +61,10 @@ impl VirtualMachine {
             self.memory.heap[offset] = *value;
         }
     }
+}
 
+// Run
+impl VirtualMachine {
     pub fn get_stdin(&mut self) -> u8 {
         while self.stdin_buffer.is_empty() {
             self.handle_subscriber_blocking();
@@ -202,6 +91,66 @@ impl VirtualMachine {
         instruction.execute(self)
     }
 
+    pub fn cycle(&mut self) {
+        self.handle_subscriber();
+
+        let fetched_memory = self.fetch();
+        let instruction = self.decode(fetched_memory);
+        self.execute(instruction);
+
+        if self.program_counter == 5511 {
+            self.paused = true;
+        }
+
+        self.cycle += 1;
+    }
+
+    pub fn run(&mut self) {
+        loop {
+            while (!self.halted && !self.paused) || self.step_once {
+                self.cycle();
+                thread::yield_now();
+                self.step_once = false;
+            }
+
+            self.handle_subscriber_blocking();
+        }
+    }
+}
+
+// Save&Load
+impl VirtualMachine {
+    pub fn get_state(&mut self) -> VirtualMachineSavestate {
+        VirtualMachineSavestate {
+            paused: self.paused.clone(),
+            halted: self.halted.clone(),
+            cycle: self.cycle.clone(),
+            program_counter: self.program_counter.clone(),
+            stdin_history: self.stdin_history.clone(),
+            stdin_buffer: self.stdin_buffer.clone(),
+            memory: self.memory.clone(),
+            output_buffer: self.output_buffer.clone(),
+        }
+    }
+
+    pub fn load_state(&mut self) {
+        self.paused = self.save_state.paused.clone();
+        self.halted = self.save_state.halted.clone();
+        self.cycle = self.save_state.cycle.clone();
+        self.program_counter = self.save_state.program_counter.clone();
+        self.stdin_history = self.save_state.stdin_history.clone();
+        self.stdin_buffer = self.save_state.stdin_buffer.clone();
+        self.memory = self.save_state.memory.clone();
+        self.output_buffer = self.save_state.output_buffer.clone();
+    }
+
+    pub fn write_out_history(&self) {
+        fs::write(HISTORY_FILE_PATH, self.stdin_history.clone()).expect("Could not write file");
+    }
+}
+
+// Subscriber
+impl VirtualMachine {
     pub fn handle_subscriber(&mut self) {
         if let Ok(tick) = self.subscriber.tick_receiver.try_recv() {
             self.handle_subscriber_tick(tick);
@@ -220,38 +169,45 @@ impl VirtualMachine {
 
     pub fn handle_subscriber_tick(&mut self, tick: VirtualMachineSubscriptionTick) {
         for c in tick.additional_stdin.chars() {
+            self.output_buffer.push(c);
             self.stdin_buffer.push_back(c as u8);
+            self.stdin_history.push(c);
+        }
+
+        if tick.save_state {
+            self.save_state = self.get_state();
+        }
+
+        if tick.load_state {
+            self.load_state();
+        }
+
+        if tick.write_history {
+            self.write_out_history();
+        }
+
+        if tick.toggle_pause {
+            self.paused = !self.paused;
+        }
+
+        if let Some(register_idx) = tick.set_register_id {
+            if register_idx <= self.memory.registers.len() {
+                self.memory.registers[register_idx] = tick.set_register_value;
+            }
+        }
+
+        if tick.step_once {
+            self.step_once = true;
         }
     }
 
-    pub fn get_subscription_update(&mut self) -> VirtualMachineSubscriptionUpdate {
+    pub fn get_subscription_update(&mut self) -> Box<VirtualMachineSubscriptionUpdate> {
         let fetched_memory = self.fetch();
         let instruction = self.decode(fetched_memory);
-        VirtualMachineSubscriptionUpdate {
-            output_buffer: self.output_buffer.clone(),
-            cycle: self.cycle,
-            registers: self.memory.registers.clone(),
-            stack: self.memory.stack.clone(),
+        Box::new(VirtualMachineSubscriptionUpdate {
             current_instruction: instruction,
-            current_program_counter: self.program_counter,
-        }
-    }
-
-    pub fn cycle(&mut self) {
-        self.handle_subscriber();
-
-        let fetched_memory = self.fetch();
-        let instruction = self.decode(fetched_memory);
-        self.execute(instruction);
-
-        self.cycle += 1;
-    }
-
-    pub fn run(&mut self) {
-        while !self.halted {
-            self.cycle();
-            thread::yield_now();
-        }
+            savestate: self.get_state(),
+        })
     }
 }
 

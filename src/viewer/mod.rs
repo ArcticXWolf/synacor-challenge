@@ -20,7 +20,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use tui::Tui;
 use update::update;
 
-use crate::vm::VirtualMachineSubscription;
+use crate::vm::subscription::VirtualMachineSubscription;
 
 pub fn main(virtual_machine_subscription: VirtualMachineSubscription) -> Result<()> {
     // Create an application.

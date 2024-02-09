@@ -1,6 +1,6 @@
 use std::{env, fs, thread};
 
-use vm::{VirtualMachine, VirtualMachineSubscription};
+use vm::{subscription::VirtualMachineSubscription, VirtualMachine};
 
 pub mod viewer;
 pub mod vm;
@@ -25,6 +25,14 @@ fn main() {
     let _handle = thread::spawn(move || {
         let mut vm = VirtualMachine::new(subscriber);
         vm.load_data(&program);
+
+        if let Ok(content) = fs::read_to_string(vm::HISTORY_FILE_PATH) {
+            for c in content.chars() {
+                vm.stdin_buffer.push_back(c as u8);
+            }
+            vm.stdin_history = content;
+        }
+
         vm.run();
     });
 

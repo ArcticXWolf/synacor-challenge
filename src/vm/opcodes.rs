@@ -1,6 +1,9 @@
 use std::fmt::Display;
 
-use crate::vm::{VirtualMachine, HEAP_SIZE, MAX_ADDRESS};
+use crate::vm::{
+    memory::{HEAP_SIZE, MAX_ADDRESS},
+    VirtualMachine,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Instruction {
@@ -141,12 +144,12 @@ impl Instruction {
             }
             // 2
             Self::Push(value) => {
-                vm.memory.stack.push(vm.memory.read(value));
+                vm.memory.stack.push((vm.memory.read(value), None));
                 vm.program_counter += self.byte_length() as u16;
             }
             // 3
             Self::Pop(register) => {
-                let value = vm.memory.stack.pop().unwrap();
+                let (value, _) = vm.memory.stack.pop().unwrap();
                 vm.memory.write(register, value);
                 vm.program_counter += self.byte_length() as u16;
             }
@@ -244,14 +247,15 @@ impl Instruction {
             }
             // 17
             Self::Call(address) => {
-                vm.memory
-                    .stack
-                    .push(vm.program_counter + self.byte_length() as u16);
+                vm.memory.stack.push((
+                    vm.program_counter + self.byte_length() as u16,
+                    Some(vm.memory.read(address)),
+                ));
                 vm.program_counter = vm.memory.read(address);
             }
             // 18
             Self::Return => {
-                let value = vm.memory.stack.pop().unwrap();
+                let (value, _) = vm.memory.stack.pop().unwrap();
                 vm.program_counter = value;
             }
             // 19
